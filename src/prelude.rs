@@ -1,1 +1,1 @@
-pub use crate::{Client, Kv, Response};
+pub use crate::{Client, Kv, Record, Response};

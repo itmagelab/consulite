@@ -162,9 +162,13 @@ impl Kv {
         })
     }
 
-    pub async fn get(self, client: &Client) -> Result<Record, anyhow::Error> {
-        let mut key: Vec<Record> = self.send_request(Method::GET, client).await?.try_into()?;
-        key.pop().ok_or_else(|| anyhow::anyhow!("No key found"))
+    pub async fn get(self, client: &Client) -> Result<Option<Record>, anyhow::Error> {
+        let rs = self.send_request(Method::GET, client).await?;
+        if rs.status == 404 {
+            return Ok(None);
+        };
+        let mut key: Vec<Record> = rs.try_into()?;
+        Ok(key.pop())
     }
 
     pub async fn put(self, client: &Client) -> Result<Response, anyhow::Error> {
@@ -176,23 +180,23 @@ impl Kv {
     }
 
     pub async fn list(self, client: &Client) -> Result<Vec<Record>, anyhow::Error> {
-        self.recurse(true)
-            .send_request(Method::GET, client)
-            .await?
-            .try_into()
+        let rs = self.recurse(true).send_request(Method::GET, client).await?;
+        if rs.status == 404 {
+            return Ok(vec![]);
+        };
+
+        rs.try_into()
     }
 }
 
 impl Client {
-    pub fn new<U>(url: U) -> Result<Self, anyhow::Error>
+    pub fn new<S>(url: S) -> Result<Self, anyhow::Error>
     where
-        U: TryInto<url::Url, Error = url::ParseError>,
+        S: Into<String>,
     {
         let client = reqwest::Client::new();
-        Ok(Self {
-            url: url.try_into()?,
-            client,
-        })
+        let url = url.into().parse()?;
+        Ok(Self { url, client })
     }
 }
 
@@ -267,8 +271,8 @@ mod tests {
         }
         let list = Kv::new("path/").list(&client).await.unwrap();
         assert_eq!(list.len(), 2);
-        let key = Kv::new("path/to/key0").get(&client).await.unwrap();
-        let value = key.value().unwrap();
+        let record = Kv::new("path/to/key0").get(&client).await.unwrap();
+        let value = record.unwrap().value().unwrap();
         assert_eq!(value["Some"], "Shit");
         Kv::new("path/to/key1").delete(&client).await.unwrap();
         let list = Kv::new("path/").list(&client).await.unwrap();
